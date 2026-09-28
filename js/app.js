@@ -1,5 +1,5 @@
 import { analyzeVideo, loadModel } from './pose.js';
-import { cleanFrames, detectSpikes, computeMetrics, METRIC_DEFS, kneeAngle, jointAngle, vecAngle, sub, mid, dist, L, fillGaps } from './metrics.js';
+import { selectSpiker, cleanFrames, detectSpikes, computeMetrics, METRIC_DEFS, kneeAngle, jointAngle, vecAngle, sub, mid, dist, L, fillGaps } from './metrics.js';
 import { corrected, boneLengths, alignRef, yawDelta, mapIndex, withCenters } from './retarget.js';
 import { createScene, groundOffset } from './scene.js';
 
@@ -74,7 +74,7 @@ $('file').addEventListener('change', async (e) => {
         setStatus(`分析中 ${k} / ${n} 格　約剩 ${Math.ceil(left)} 秒`);
       },
     });
-    const frames = cleanFrames(res.frames);
+    const frames = cleanFrames(selectSpiker(res.frames));
     const seen = frames.filter((f) => f.world).length;
     const spikes = detectSpikes(frames);
     if (!spikes.length) {

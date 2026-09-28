@@ -31,6 +31,48 @@ export function kneeAngle(w) {
   return (jointAngle(w[L.lHip], w[L.lKn], w[L.lAn]) + jointAngle(w[L.rHip], w[L.rKn], w[L.rAn])) / 2;
 }
 
+// 多人畫面：跨格把同一個人串成軌跡（髖部中心最近者、位移 < 0.8 個軀幹長），
+// 再挑「顯眼度」最高的軌跡＝各格軀幹長總和（越大、出現越久越高），× (1 + 手舉過頭時的最大揮臂分數)。
+// 回傳單人格式 { t, img, world, track }；已是單人格式的格原樣保留。
+export function selectSpiker(frames) {
+  if (!frames.some((f) => f.people)) return frames;
+  const tracks = []; // { id, last: {c, torso, i}, score, spike }
+  const assign = frames.map(() => new Map()); // i → Map(trackId → person)
+  const hipC = (p) => mid(p.img[L.lHip], p.img[L.rHip]);
+  const torsoOf = (p) => dist(mid(p.img[L.lSh], p.img[L.rSh]), hipC(p));
+  frames.forEach((f, i) => {
+    const used = new Set();
+    const cand = (f.people ?? []).map((p) => ({ p, c: hipC(p), torso: torsoOf(p) }))
+      .sort((a, b) => b.torso - a.torso);
+    for (const q of cand) {
+      let best = null; let bd = Infinity;
+      for (const t of tracks) {
+        if (used.has(t.id) || i - t.last.i > 8) continue;
+        const d = dist(q.c, t.last.c) / Math.max(q.torso, t.last.torso);
+        if (d < 0.8 && d < bd) { bd = d; best = t; }
+      }
+      if (!best) { best = { id: tracks.length, score: 0, spike: 0, last: null, prevWr: null }; tracks.push(best); }
+      used.add(best.id);
+      best.score += q.torso;
+      // 揮臂分數：手腕舉過鼻子時的移動速度（以軀幹長為單位）
+      for (const w of [L.lWr, L.rWr]) {
+        const h = (q.p.img[L.nose][1] - q.p.img[w][1]) / q.torso;
+        const prev = best.prevWr?.[w];
+        if (h > 0.3 && prev && i - best.last.i <= 2) best.spike = Math.max(best.spike, (dist(q.p.img[w], prev) / q.torso) * h);
+      }
+      best.prevWr = { [L.lWr]: q.p.img[L.lWr], [L.rWr]: q.p.img[L.rWr] };
+      best.last = { c: q.c, torso: q.torso, i };
+      assign[i].set(best.id, q.p);
+    }
+  });
+  if (!tracks.length) return frames.map((f) => ({ t: f.t, img: null, world: null }));
+  const win = tracks.reduce((a, b) => (b.score * (1 + b.spike) > a.score * (1 + a.spike) ? b : a));
+  return frames.map((f, i) => {
+    const p = assign[i].get(win.id);
+    return { t: f.t, img: p?.img ?? null, world: p?.world ?? null, track: win.id };
+  });
+}
+
 // 扣球全程頭都在髖部上方；影像或世界座標任一顯示頭在髖下，視為誤偵測（常見於人群、翻轉），整格作廢
 export function cleanFrames(frames) {
   return frames.map((f) => {
