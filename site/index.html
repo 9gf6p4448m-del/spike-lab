@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>扣球實驗室</title>
+<meta name="description" content="手機上傳扣球影片，在瀏覽器裡抓出 33 個關節點，跟石川祐希與各國主攻手比對。影片不會離開你的手機。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0a0e13;
+  --panel: #111821;
+  --panel-2: #0e141b;
+  --line: #1f2b38;
+  --text: #e6edf3;
+  --muted: #7d8b99;
+  --you: #ff7a1a;
+  --fix: #2ee6d6;
+  --ghost: #dfe8f2;
+  --bad: #ff4d5e;
+  --ok: #4ade80;
+  --sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 15px/1.6 var(--sans); padding-inline: 16px; padding-block: max(12px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-bottom)); }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
+.meta { font: 11px/1.4 var(--mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.meta b { color: var(--fix); font-weight: 600; }
+h1 { font-weight: 900; font-size: clamp(28px, 7vw, 44px); line-height: 1.1; margin: 4px 0 0; text-wrap: balance; }
+h1 span { color: var(--fix); display: block; font-size: .62em; margin-top: 6px; }
+.lede { color: #b7c3cf; margin: 8px 0 0; max-width: 62ch; }
+h2 { font-size: 13px; font-family: var(--mono); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+
+.upload { display: grid; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.upload-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { appearance: none; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: 600 14px var(--sans); padding: 10px 14px; border-radius: 10px; cursor: pointer; min-height: 44px; }
+.btn:hover { border-color: #33485e; }
+.btn:focus-visible, .chip:focus-visible, input:focus-visible { outline: 2px solid var(--fix); outline-offset: 2px; }
+.btn.primary { background: var(--you); border-color: var(--you); color: #1a0d02; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn[disabled] { opacity: .45; cursor: default; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.progress { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--you), var(--fix)); transition: width .15s linear; }
+.status { font: 13px var(--mono); color: #b7c3cf; min-height: 1.4em; }
+.status.err { color: var(--bad); }
+
+.stage { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .stage { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); } }
+
+.viewer { position: relative; background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.viewer canvas { display: block; width: 100%; aspect-ratio: 1 / 1; touch-action: none; }
+@media (min-width: 600px) { .viewer canvas { aspect-ratio: 16 / 11; } }
+.hud { position: absolute; inset: 10px 10px auto 10px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; }
+.hud table { font: 11px/1.5 var(--mono); border-collapse: collapse; background: rgba(10,14,19,.72); border-radius: 8px; }
+.hud td, .hud th { padding: 1px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+.hud th { font-weight: 400; color: var(--muted); }
+.hud td:first-child { text-align: left; color: var(--muted); }
+.hud .y { color: var(--you); } .hud .f { color: var(--fix); }
+.phase { text-align: right; }
+.phase b { display: block; font: 900 22px var(--sans); }
+.phase small { font: 11px var(--mono); color: var(--muted); }
+.legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11px var(--mono); color: var(--muted); pointer-events: none; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.demo-tag { position: absolute; right: 10px; bottom: 8px; font: 11px var(--mono); color: var(--ghost); background: rgba(223,232,242,.1); padding: 2px 8px; border-radius: 6px; }
+
+.controls { display: grid; gap: 10px; padding: 12px; border-top: 1px solid var(--line); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+input[type=range] { width: 100%; accent-color: var(--fix); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 12px var(--mono); border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 10px; border-radius: 8px; cursor: pointer; min-height: 36px; }
+.chip[aria-pressed=true] { border-color: var(--fix); color: var(--fix); }
+.chip .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--you); margin-right: 6px; vertical-align: middle; }
+.chip.bad .dot { background: var(--bad); }
+label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #b7c3cf; }
+
+.side { display: grid; gap: 14px; align-content: start; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.video-box { position: relative; background: #000; border-radius: 10px; overflow: hidden; }
+.video-box video, .video-box canvas { display: block; width: 100%; }
+.video-box canvas { position: absolute; inset: 0; height: 100%; pointer-events: none; }
+
+.metrics { width: 100%; border-collapse: collapse; font-size: 13px; }
+.metrics th { font: 11px var(--mono); color: var(--muted); font-weight: 400; text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.metrics th:first-child { text-align: left; }
+.metrics td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; vertical-align: top; }
+.metrics td:first-child { text-align: left; font-family: var(--sans); }
+.metrics td:first-child small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+.metrics .you { color: var(--you); font-weight: 600; }
+.metrics .out { color: var(--bad); }
+.metrics .in { color: var(--ok); }
+.metrics-wrap { overflow-x: auto; }
+.pill { display: inline-block; font: 11px var(--mono); padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; }
+
+.advice { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.advice li { border-left: 3px solid var(--bad); padding: 6px 0 6px 12px; }
+.advice li.good { border-color: var(--ok); }
+.advice b { display: block; }
+.advice p { margin: 2px 0 0; color: #b7c3cf; font-size: 14px; }
+
+.sources { font-size: 13px; color: #b7c3cf; display: grid; gap: 4px; }
+.sources a { color: var(--fix); }
+.fine { color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 80ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="meta"><span>Spike Lab</span><span id="metaFile">範例：石川祐希</span><span><b>33 關節點</b> · 3D 重建</span><span>影片只在你的手機上分析</span></div>
+    <h1>扣球動作實驗室<span id="headline">石川祐希的扣球，逐格拆解</span></h1>
+    <p class="lede" id="lede">選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往石川的動作調整後的你，半透明白色是石川本人。</p>
+  </header>
+
+  <section class="upload" aria-label="上傳影片">
+    <div class="upload-row">
+      <label class="btn primary" for="file">選擇扣球影片</label>
+      <input id="file" type="file" accept="video/*" hidden>
+      <button class="btn" id="cancel" hidden>取消分析</button>
+    </div>
+    <p class="hint">拍法：側面、固定機位、全身入鏡（助跑到落地都要在畫面裡），畫面裡最好只有你一個人。能用慢動作拍更準。一支影片裡可以有好幾球。</p>
+    <div class="progress" hidden id="progWrap"><i id="prog"></i></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="stage">
+    <div class="viewer">
+      <canvas id="three" aria-label="3D 骨架，可以拖曳旋轉視角"></canvas>
+      <div class="hud">
+        <table id="hudTable" aria-label="目前這一格的角度"></table>
+        <div class="phase"><b id="phase">—</b><small id="tlabel"></small></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i>石川祐希</span></div>
+      <div class="demo-tag" id="demoTag">範例資料</div>
+    </div>
+
+    <aside class="side">
+      <div class="card" id="videoCard" hidden>
+        <h2>原始影片 · 骨架疊圖</h2>
+        <div class="video-box"><video id="video" playsinline muted preload="auto"></video><canvas id="overlay"></canvas></div>
+      </div>
+      <div class="card">
+        <h2 id="shotTitle">這一球的數據</h2>
+        <div class="metrics-wrap"><table class="metrics" id="metrics"></table></div>
+      </div>
+    </aside>
+  </section>
+
+  <div class="card controls" style="border-top:1px solid var(--line)">
+    <div class="row">
+      <button class="btn" id="play" aria-label="播放">▶ 播放</button>
+      <button class="btn" id="toContact">跳到擊球瞬間</button>
+      <button class="btn" id="speed">速度 0.5×</button>
+      <label class="tog"><input type="checkbox" id="showGhost" checked> 顯示石川</label>
+      <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label>
+    </div>
+    <input type="range" id="scrub" min="0" max="0" value="0" aria-label="時間軸">
+    <div class="chips" id="chips" aria-label="選擇第幾球"></div>
+  </div>
+
+  <section class="card">
+    <h2>怎麼進步</h2>
+    <ul class="advice" id="advice"></ul>
+  </section>
+
+  <section class="card">
+    <h2>參考資料來源</h2>
+    <div class="sources" id="sources"></div>
+    <p class="fine">職業範圍＝下列各國主攻手每一球數值的最小到最大值。參考數值和你的數值都用同一個模型（MediaPipe Pose Landmarker Full）與同一套公式算出。單支手機影片推估的 3D 深度（前後方向）誤差較大，「肩髖扭轉」請當趨勢參考。矯正骨架是把你每段骨頭的方向往石川同一時刻的姿勢靠攏 75%，骨頭長度維持你自己的，並不是生物力學模擬。</p>
+  </section>
+</div>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

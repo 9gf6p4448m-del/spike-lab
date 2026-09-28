@@ -31,6 +31,17 @@ export function kneeAngle(w) {
   return (jointAngle(w[L.lHip], w[L.lKn], w[L.lAn]) + jointAngle(w[L.rHip], w[L.rKn], w[L.rAn])) / 2;
 }
 
+// 扣球全程頭都在髖部上方；影像或世界座標任一顯示頭在髖下，視為誤偵測（常見於人群、翻轉），整格作廢
+export function cleanFrames(frames) {
+  return frames.map((f) => {
+    if (!f.img || !f.world) return { ...f, img: null, world: null };
+    const hipImg = (f.img[L.lHip][1] + f.img[L.rHip][1]) / 2;
+    const hipW = (f.world[L.lHip][1] + f.world[L.rHip][1]) / 2;
+    if (f.img[L.nose][1] >= hipImg || f.world[L.nose][1] >= hipW) return { ...f, img: null, world: null };
+    return f;
+  });
+}
+
 // 缺值線性內插（頭尾取最近值），回傳新陣列
 export function fillGaps(arr) {
   const out = arr.slice();
