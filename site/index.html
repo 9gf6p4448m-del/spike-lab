@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>扣球實驗室</title>
-<meta name="description" content="手機上傳扣球影片，在瀏覽器裡抓出 33 個關節點，跟石川祐希與各國主攻手比對。影片不會離開你的手機。">
+<meta name="description" content="手機上傳扣球影片，在瀏覽器裡抓出 33 個關節點，跟職業主攻手比對。影片不會離開你的手機。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap">
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
@@ -95,6 +95,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
 .metrics .you { color: var(--you); font-weight: 600; }
 .metrics .out { color: var(--bad); }
 .metrics .in { color: var(--ok); }
+.metrics .muted { color: var(--muted); font-weight: 400; font-family: var(--sans); }
 .metrics-wrap { overflow-x: auto; }
 .pill { display: inline-block; font: 11px var(--mono); padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; }
 
@@ -106,15 +107,18 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
 
 .sources { font-size: 13px; color: #b7c3cf; display: grid; gap: 4px; }
 .sources a { color: var(--fix); }
+.notice { margin: 10px 0 0; padding: 10px 12px; border: 1px solid #5c4a1f; background: #1c1709; color: #f3d9a4; border-radius: 10px; font-size: 14px; max-width: 70ch; }
+.notice b { color: #ffd27a; }
 .fine { color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 80ch; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="meta"><span>Spike Lab</span><span id="metaFile">範例：石川祐希</span><span><b>33 關節點</b> · 3D 重建</span><span>影片只在你的手機上分析</span></div>
-    <h1>扣球動作實驗室<span id="headline">石川祐希的扣球，逐格拆解</span></h1>
-    <p class="lede" id="lede">選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往石川的動作調整後的你，半透明白色是石川本人。</p>
+    <div class="meta"><span>Spike Lab</span><span id="metaFile">範例</span><span><b>33 關節點</b> · 3D 重建</span><span>影片只在你的手機上分析</span></div>
+    <h1>扣球動作實驗室<span id="headline">職業主攻手的扣球，逐格拆解</span></h1>
+    <p class="lede" id="lede">選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往職業選手的動作調整後的你，半透明白色是職業選手本人。</p>
+    <p class="notice" id="refNotice" hidden></p>
   </header>
 
   <section class="upload" aria-label="上傳影片">
@@ -136,7 +140,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
           <table id="hudTable" aria-label="目前這一格的角度"></table>
           <div class="phase"><b id="phase">—</b><small id="tlabel"></small></div>
         </div>
-        <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i>石川祐希</span></div>
+        <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i><span id="ghostLegend">參考選手</span></span></div>
         <div class="demo-tag" id="demoTag">範例資料</div>
       </div>
       <div class="controls">
@@ -144,7 +148,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
           <button class="btn" id="play" aria-label="播放">▶ 播放</button>
           <button class="btn" id="toContact">跳到擊球瞬間</button>
           <button class="btn" id="speed">速度 0.5×</button>
-          <label class="tog"><input type="checkbox" id="showGhost" checked> 顯示石川</label>
+          <label class="tog"><input type="checkbox" id="showGhost" checked><span id="ghostToggle"> 顯示參考選手</span></label>
           <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label>
         </div>
         <input type="range" id="scrub" min="0" max="0" value="0" aria-label="時間軸">
@@ -173,7 +177,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
   <section class="card">
     <h2>參考資料來源</h2>
     <div class="sources" id="sources"></div>
-    <p class="fine">職業範圍＝下列各國主攻手每一球數值的最小到最大值。參考數值和你的數值都用同一個模型（MediaPipe Pose Landmarker Full）與同一套公式算出。單支手機影片推估的 3D 深度（前後方向）誤差較大，「肩髖扭轉」請當趨勢參考。矯正骨架是把你每段骨頭的方向往石川同一時刻的姿勢靠攏 75%，骨頭長度維持你自己的，並不是生物力學模擬。</p>
+    <p class="fine">判定範圍＝下列參考選手每一球數值的最小到最大值，兩端再各放寬量測誤差（角度 ±12°、肩髖扭轉 ±15°、擊球點高度 ±6%），超出才標紅。參考數值和你的數值都用同一個模型（MediaPipe Pose Landmarker Full）與同一套公式算出。單支手機影片推估的 3D 深度（前後方向）誤差較大，「肩髖扭轉」請當趨勢參考。矯正骨架是把你每段骨頭的方向往參考選手同一時刻的姿勢靠攏 75%，骨頭長度維持你自己的，並不是生物力學模擬。</p>
   </section>
 </div>
 <script type="module" src="./js/app.js"></script>

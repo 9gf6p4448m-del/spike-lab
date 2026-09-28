@@ -14,6 +14,9 @@ fs.mkdirSync(cacheDir, { recursive: true });
 const STORED = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 31, 32];
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const isIshikawa = (e) => /ishikawa|石川/i.test(e.player);
+// 主要對照：有石川用石川；還沒有石川片段時暫用第一位已驗證選手
+const PRIMARY = manifest.find(isIshikawa)?.player ?? manifest[0]?.player;
+const isPrimary = (e) => e.player === PRIMARY;
 
 const todo = manifest.filter((e) => !fs.existsSync(path.join(cacheDir, path.basename(e.file) + '.json')));
 if (todo.length) {
@@ -53,9 +56,9 @@ for (const e of manifest) {
   const id = path.basename(e.file).replace(/\.\w+$/, '');
   const clip = {
     id, player: e.player, country: e.country, source_url: e.source_url, source_start: e.source_start,
-    arm: sp.arm, primary: isIshikawa(e), metrics: Object.fromEntries(Object.entries(m).filter(([k]) => METRIC_DEFS.some((d) => d.key === k)).map(([k, v]) => [k, Number.isFinite(v) ? Math.round(v * 10) / 10 : null])),
+    arm: sp.arm, primary: isPrimary(e), metrics: Object.fromEntries(Object.entries(m).filter(([k]) => METRIC_DEFS.some((d) => d.key === k)).map(([k, v]) => [k, Number.isFinite(v) ? Math.round(v * 10) / 10 : null])),
   };
-  if (isIshikawa(e)) {
+  {
     const fr = frames.slice(sp.start, sp.end + 1);
     // 缺格用前一格補，確保播放不斷
     let prev = fr.find((f) => f.world)?.world;
@@ -72,8 +75,10 @@ for (const e of manifest) {
 
 const keys = METRIC_DEFS.map((d) => d.key);
 const ish = clips.filter((c) => c.primary);
+const primaryName = ish[0]?.player ?? null;
 const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
 const summary = {
+  primary: { player: primaryName, isIshikawa: /ishikawa|石川/i.test(primaryName ?? ''), clips: ish.length },
   ishikawa: Object.fromEntries(keys.map((k) => { const v = ish.map((c) => c.metrics[k]).filter((x) => x != null); return [k, v.length ? Math.round(mean(v) * 10) / 10 : null]; })),
   range: Object.fromEntries(keys.map((k) => { const v = clips.map((c) => c.metrics[k]).filter((x) => x != null); return [k, v.length ? [Math.min(...v), Math.max(...v)] : null]; })),
   counts: { players: new Set(clips.map((c) => c.player)).size, clips: clips.length },

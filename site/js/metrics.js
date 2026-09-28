@@ -149,9 +149,9 @@ export function median(a) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-// 偵測每一次扣球：手腕舉過頭（h > 0.3 個軀幹長）的連續區段中，取「速度×高度」最大格為擊球格。
+// 偵測每一次扣球：手腕舉過頭（h > 0.3 個軀幹長；真實影片中擊球格實測 0.3–0.7，0.5 會漏掉斜側鏡頭）的連續區段中，取「速度×高度」最大格為擊球格。
 // 兩次扣球之間必須有雙腕都低於肩（h < -0.4）的格作分隔。
-export function detectSpikes(frames, { minH = 0.5 } = {}) {
+export function detectSpikes(frames, { minH = 0.3 } = {}) {
   const n = frames.length;
   if (n < 5) return [];
   const s = imageSeries(frames);
@@ -192,6 +192,9 @@ export function detectSpikes(frames, { minH = 0.5 } = {}) {
 }
 
 // 起跳蹲低格＝擊球前膝角最小；落地緩衝格＝擊球後膝角最小
+// 影片沒拍到蹲低或落地（例如從空中開始的重播）時，最小值會落在片段邊界或緊貼擊球格，
+// 這時量到的是空中姿勢，不是蹲低／落地：標為沒拍到（crouchSeen / landingSeen = false）。
+// 判準：極值不在片段頭尾 2 格內、離擊球 ≥ 4 格，且極值前後膝角都比極值大 ≥ 10°（真的有「蹲下再伸直」）。
 export function phaseEvents(frames, a, b, contact) {
   const knee = frames.map((f) => (f.world ? kneeAngle(f.world) : NaN));
   let crouch = a; let landing = b;
@@ -199,7 +202,12 @@ export function phaseEvents(frames, a, b, contact) {
   for (let i = a; i < contact; i++) if (knee[i] < mn) { mn = knee[i]; crouch = i; }
   mn = Infinity;
   for (let i = contact + 1; i <= b; i++) if (knee[i] < mn) { mn = knee[i]; landing = i; }
-  return { crouch, landing };
+  const maxIn = (x, y) => { let m = -Infinity; for (let i = x; i <= y; i++) if (knee[i] > m) m = knee[i]; return m; };
+  const crouchSeen = crouch - a >= 2 && contact - crouch >= 4
+    && maxIn(a, crouch) - knee[crouch] >= 10 && maxIn(crouch, contact) - knee[crouch] >= 10;
+  const landingSeen = b - landing >= 2 && landing - contact >= 4
+    && maxIn(contact, landing) - knee[landing] >= 10 && maxIn(landing, b) - knee[landing] >= 10;
+  return { crouch, landing, crouchSeen, landingSeen };
 }
 
 // 身高代理值（公尺）：小腿＋大腿＋軀幹＋頸，取整段中位數
@@ -217,29 +225,30 @@ export function bodyHeight(frames, a, b) {
 const UP = [0, -1, 0];
 const horiz = (v) => [v[0], 0, v[2]];
 
-// 指標定義。每項：key、名稱、單位、說明、取值函式。
+// 指標定義。tol＝量測誤差容許值：判定「超出範圍」時，職業 min–max 兩端各放寬 tol（單支影片的關節點抖動實測約 ±10°）。
 export const METRIC_DEFS = [
-  { key: 'takeoffKnee', label: '起跳前膝角', unit: '°', note: '起跳前蹲到最低時的膝蓋角度（180°＝打直）。越小代表蹲得越深、儲力越多。' },
-  { key: 'backswingElbow', label: '拉弓手肘高度', unit: '°', note: '擊球臂拉弓時上臂和軀幹的夾角。90° 代表手肘跟肩同高，越大手肘越高。' },
-  { key: 'separation', label: '肩髖扭轉', unit: '°', note: '擊球前肩線和髖線在水平面上的最大夾角。代表身體有沒有轉開來蓄力。單支影片的深度估計誤差大，看趨勢就好。' },
-  { key: 'contactElbow', label: '擊球時手肘角', unit: '°', note: '擊球那一格擊球臂的手肘角度。越接近 180° 手臂越直、擊球點越高。' },
-  { key: 'contactReach', label: '擊球點高度', unit: '%', note: '擊球時手腕高出頭頂多少，以身高的百分比表示。' },
-  { key: 'contactTrunk', label: '擊球時軀幹傾角', unit: '°', note: '擊球時軀幹偏離垂直多少度。' },
-  { key: 'landingKnee', label: '落地膝角', unit: '°', note: '落地後膝蓋彎到最深的角度。太直（接近 180°）代表落地沒有緩衝，膝蓋負擔大。' },
+  { key: 'takeoffKnee', label: '起跳前膝角', unit: '°', tol: 12, note: '起跳前蹲到最低時的膝蓋角度（180°＝打直）。越小代表蹲得越深、儲力越多。' },
+  { key: 'backswingElbow', label: '拉弓手肘高度', unit: '°', tol: 12, note: '擊球臂拉弓時上臂和軀幹的夾角。90° 代表手肘跟肩同高，越大手肘越高。' },
+  { key: 'separation', label: '肩髖扭轉', unit: '°', tol: 15, note: '擊球前肩線和髖線在水平面上的最大夾角。代表身體有沒有轉開來蓄力。單支影片的深度估計誤差大，看趨勢就好。' },
+  { key: 'contactElbow', label: '擊球時手肘角', unit: '°', tol: 12, note: '擊球那一格擊球臂的手肘角度。越接近 180° 手臂越直、擊球點越高。' },
+  { key: 'contactReach', label: '擊球點高度', unit: '%', tol: 6, note: '擊球時手腕高出頭頂多少，以身高的百分比表示。' },
+  { key: 'contactTrunk', label: '擊球時軀幹傾角', unit: '°', tol: 12, note: '擊球時軀幹偏離垂直多少度。' },
+  { key: 'landingKnee', label: '落地膝角', unit: '°', tol: 12, note: '落地後膝蓋彎到最深的角度。太直（接近 180°）代表落地沒有緩衝，膝蓋負擔大。' },
 ];
 
 export function computeMetrics(frames, spike) {
-  const { arm, contact, crouch, landing, start, end } = spike;
+  const { arm, contact, crouch, landing, start, end, crouchSeen = true, landingSeen = true } = spike;
   const sd = side(arm);
   const W = (i) => frames[i]?.world;
   const m = {};
   const wc = W(contact);
   const wk = W(crouch);
-  m.takeoffKnee = wk ? kneeAngle(wk) : NaN;
+  m.takeoffKnee = wk && crouchSeen ? kneeAngle(wk) : NaN;
+  const from = crouchSeen ? crouch : start; // 沒拍到蹲低時，拉弓與扭轉從片段開頭找
 
   // 拉弓：蹲低到擊球之間，擊球臂手肘最彎的那格
   let bs = NaN; let minEl = Infinity;
-  for (let i = crouch; i < contact; i++) {
+  for (let i = from; i < contact; i++) {
     const w = W(i); if (!w) continue;
     const e = jointAngle(w[sd.sh], w[sd.el], w[sd.wr]);
     if (e < minEl) { minEl = e; bs = i; }
@@ -252,7 +261,7 @@ export function computeMetrics(frames, spike) {
   m.backswingFrame = bs;
 
   let sep = NaN;
-  for (let i = crouch; i <= contact; i++) {
+  for (let i = from; i <= contact; i++) {
     const w = W(i); if (!w) continue;
     let a = vecAngle(horiz(sub(w[L.rSh], w[L.lSh])), horiz(sub(w[L.rHip], w[L.lHip])));
     if (!Number.isFinite(sep) || a > sep) sep = a;
@@ -266,6 +275,6 @@ export function computeMetrics(frames, spike) {
     m.contactTrunk = vecAngle(sub(mid(wc[L.lSh], wc[L.rSh]), mid(wc[L.lHip], wc[L.rHip])), UP);
   } else { m.contactElbow = m.contactReach = m.contactTrunk = NaN; }
 
-  m.landingKnee = W(landing) ? kneeAngle(W(landing)) : NaN;
+  m.landingKnee = W(landing) && landingSeen ? kneeAngle(W(landing)) : NaN;
   return m;
 }

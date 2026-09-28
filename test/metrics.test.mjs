@@ -50,3 +50,26 @@ test('多人：一樣大時，有扣球揮臂的人勝出', () => {
   const out = selectSpiker(frames);
   assert.ok(Math.abs(out[0].img[L.lHip][0] - (0.3 - 0.025)) < 1e-9, '選到揮臂者');
 });
+
+import { phaseEvents } from '../site/js/metrics.js';
+// 只有膝角有意義的合成序列：knees[i] 為該格膝角
+function kneeFrames(knees) {
+  return knees.map((k) => {
+    const w = Array.from({ length: 33 }, () => [0, 0, 0]);
+    const r = (k * Math.PI) / 180;
+    for (const [h, n, a] of [[L.lHip, L.lKn, L.lAn], [L.rHip, L.rKn, L.rAn]]) { w[h] = [0, -1, 0]; w[n] = [0, 0, 0]; w[a] = [Math.sin(r), -Math.cos(r), 0]; }
+    return { world: w };
+  });
+}
+test('有「蹲下再伸直」才算拍到蹲低與落地', () => {
+  const k = [170, 165, 150, 130, 115, 130, 150, 170, 175, 175, 175, 175, 175, 150, 125, 140, 165, 170, 170];
+  const ev = phaseEvents(kneeFrames(k), 0, k.length - 1, 10);
+  assert.equal(ev.crouch, 4); assert.equal(ev.crouchSeen, true);
+  assert.equal(ev.landing, 14); assert.equal(ev.landingSeen, true);
+});
+test('從空中開始、剪在落地前的片段：蹲低與落地都標為沒拍到', () => {
+  const k = [160, 165, 170, 172, 175, 175, 175, 174, 172, 170];
+  const ev = phaseEvents(kneeFrames(k), 0, k.length - 1, 5);
+  assert.equal(ev.crouchSeen, false);
+  assert.equal(ev.landingSeen, false);
+});

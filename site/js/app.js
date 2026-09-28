@@ -8,6 +8,7 @@ const S = createScene($('three'));
 
 // ---------- 參考資料 ----------
 let REF = null;
+let PN = '參考選手'; // 主要對照選手的短名
 const STORED = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 31, 32]; // reference.json 只存這 15 點
 function expand(pts) {
   const w = Array.from({ length: 33 }, () => [0, 0, 0]);
@@ -166,13 +167,19 @@ function renderChips() {
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const fmt = (v, unit) => (Number.isFinite(v) ? `${Math.round(v)}${unit}` : '—');
 
+// 判定用範圍＝職業 min–max 兩端各放寬量測誤差 tol
+function judgeRange(key) {
+  const r = REF.summary.range[key]; const d = METRIC_DEFS.find((x) => x.key === key);
+  return r ? [r[0] - d.tol, r[1] + d.tol] : null;
+}
 function status(key, v) {
-  const r = REF.summary.range[key];
+  const r = judgeRange(key);
   if (!r || !Number.isFinite(v)) return 0;
   if (v < r[0]) return -1;
   if (v > r[1]) return 1;
   return 0;
 }
+const rangeText = (d) => { const r = REF.summary.range[d.key]; if (!r) return '—'; return r[0] === r[1] ? `${Math.round(r[0])}${d.unit} ±${d.tol}` : `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}（±${d.tol}）`; };
 const outCount = (m) => METRIC_DEFS.filter((d) => status(d.key, m[d.key]) !== 0).length;
 
 function renderMetrics() {
@@ -180,14 +187,14 @@ function renderMetrics() {
   const ish = REF.summary.ishikawa;
   const user = st.mode === 'user' ? st.user.spikes[st.shot].metrics : null;
   const n = REF.summary.counts;
-  $('shotTitle').textContent = user ? `第 ${st.shot + 1} 球的數據` : `石川祐希 vs 職業範圍（${n.players} 位選手、${n.clips} 球）`;
-  let html = `<tr><th>指標</th>${user ? '<th>你</th>' : ''}<th>石川</th><th>職業範圍</th></tr>`;
+  $('shotTitle').textContent = user ? `第 ${st.shot + 1} 球的數據` : `${PN} 的數據（參考資料：${n.players} 位選手、${n.clips} 球）`;
+  let html = `<tr><th>指標</th>${user ? '<th>你</th>' : ''}<th>${PN}</th><th>判定範圍</th></tr>`;
   for (const d of METRIC_DEFS) {
     const r = REF.summary.range[d.key];
     const s = user ? status(d.key, user[d.key]) : 0;
     html += `<tr><td>${d.label}<small>${d.note}</small></td>`
-      + (user ? `<td class="you ${s ? 'out' : ''}">${fmt(user[d.key], d.unit)}${s ? ` <span class="pill">${s < 0 ? '偏低' : '偏高'}</span>` : ''}</td>` : '')
-      + `<td>${fmt(ish[d.key], d.unit)}</td><td>${r ? `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}` : '—'}</td></tr>`;
+      + (user ? `<td class="you ${s ? 'out' : ''}">${Number.isFinite(user[d.key]) ? fmt(user[d.key], d.unit) : '<span class="muted">沒拍到</span>'}${s ? ` <span class="pill">${s < 0 ? '偏低' : '偏高'}</span>` : ''}</td>` : '')
+      + `<td>${fmt(ish[d.key], d.unit)}</td><td>${rangeText(d)}</td></tr>`;
   }
   t.innerHTML = html;
 }
@@ -237,10 +244,10 @@ function renderAdvice() {
     if (!s) continue;
     const r = REF.summary.range[d.key];
     const gap = s < 0 ? r[0] - m[d.key] : m[d.key] - r[1];
-    items.push({ gap: gap / Math.max(1, r[1] - r[0]), html: `<li><b>${d.label}：你 ${fmt(m[d.key], d.unit)}，職業範圍 ${Math.round(r[0])}–${Math.round(r[1])}${d.unit}，石川 ${fmt(REF.summary.ishikawa[d.key], d.unit)}</b><p>${ADVICE[d.key][String(s)]}</p></li>` });
+    items.push({ gap: gap / Math.max(1, r[1] - r[0]), html: `<li><b>${d.label}：你 ${fmt(m[d.key], d.unit)}，判定範圍 ${rangeText(d)}，${PN} ${fmt(REF.summary.ishikawa[d.key], d.unit)}</b><p>${ADVICE[d.key][String(s)]}</p></li>` });
   }
   items.sort((a, b) => b.gap - a.gap);
-  if (!items.length) ul.innerHTML = '<li class="good"><b>這一球每項指標都落在職業範圍內</b><p>接下來可以比對 3D 畫面，看動作的時間順序（蹲低、拉弓、擊球）跟石川有沒有差別。</p></li>';
+  if (!items.length) ul.innerHTML = `<li class="good"><b>這一球每項指標都落在判定範圍內</b><p>接下來可以比對 3D 畫面，看動作的時間順序（蹲低、拉弓、擊球）跟 ${PN} 有沒有差別。</p></li>`;
   else ul.innerHTML = items.map((x) => x.html).join('');
 }
 
@@ -310,7 +317,7 @@ function hud(a, b, g) {
   const rows = [['膝角', 'knee'], ['擊球臂肘角', 'elbow'], ['上臂抬高', 'raise'], ['軀幹傾角', 'trunk']];
   const t = $('hudTable');
   if (g) {
-    t.innerHTML = '<tr><th></th><th>石川</th></tr>' + rows.map(([n, k]) => `<tr><td>${n}</td><td>${fmt(g[k], '°')}</td></tr>`).join('');
+    t.innerHTML = `<tr><th></th><th>${PN}</th></tr>` + rows.map(([n, k]) => `<tr><td>${n}</td><td>${fmt(g[k], '°')}</td></tr>`).join('');
     return;
   }
   t.innerHTML = '<tr><th></th><th class="y">你</th><th class="f">矯正</th></tr>'
@@ -373,6 +380,19 @@ $('scrub').oninput = (e) => { setPlaying(false); st.i = Number(e.target.value); 
 $('showGhost').onchange = draw;
 $('showFix').onchange = draw;
 
+function applyNames() {
+  const p = REF.summary.primary;
+  PN = p.isIshikawa ? '石川' : p.player.split(' ').pop();
+  const n = REF.summary.counts;
+  $('metaFile').textContent = `範例：${p.player}`;
+  $('headline').textContent = `${p.player} 的扣球，逐格拆解`;
+  $('lede').textContent = `選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往 ${PN} 的動作調整後的你，半透明白色是 ${PN} 本人。`;
+  $('ghostLegend').textContent = p.player;
+  $('ghostToggle').textContent = ` 顯示 ${PN}`;
+  $('refNotice').hidden = p.isIshikawa && n.clips >= 3;
+  $('refNotice').innerHTML = p.isIshikawa ? `目前參考資料 ${n.players} 位選手、${n.clips} 球，持續補充中。` : `<b>石川祐希的參考資料補充中。</b>目前先用 ${p.player}（${n.clips} 球）當對照；參考球數少，判定範圍是用「參考值 ± 量測誤差」估的，建議當方向參考。`;
+}
+
 function renderSources() {
   const byP = {};
   for (const c of REF.clips) (byP[`${c.player}（${c.country}）`] ??= []).push(c);
@@ -389,6 +409,7 @@ function renderSources() {
     return;
   }
   st.refClip = REF.clips.find((c) => c.primary && c.pose) ?? REF.clips.find((c) => c.pose);
+  applyNames();
   renderSources();
   selectShot(0);
   setPlaying(true);

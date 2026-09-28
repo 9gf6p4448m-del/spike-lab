@@ -1,4 +1,4 @@
-// 3D 骨架場景：橘＝你、青＝矯正後的你、半透明白＝石川
+// 3D 骨架場景：橘＝你、青＝矯正後的你、半透明白＝參考選手
 import * as THREE from 'three';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 import { BONES, MH, MS, withCenters } from './retarget.js';
