@@ -66,11 +66,11 @@ export function createScene(canvas) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x0a0e13, 6, 14);
   const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 50);
-  camera.position.set(1.2, 1.4, 5.2);
+  camera.position.set(0.9, 1.3, 3.9);
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(0, 1.0, 0);
   controls.enableDamping = true;
-  controls.minDistance = 2; controls.maxDistance = 10;
+  controls.minDistance = 1.5; controls.maxDistance = 9;
   controls.maxPolarAngle = Math.PI * 0.52;
 
   scene.add(new THREE.HemisphereLight(0xbfd6ff, 0x1a1208, 0.9));
@@ -110,6 +110,6 @@ export function createScene(canvas) {
   return {
     you, fix, ghost,
     render() { dirty = true; },
-    resetView(target = [0, 1.0, 0]) { camera.position.set(1.2, 1.4, 5.2); controls.target.set(...target); dirty = true; },
+    resetView(target = [0, 1.0, 0]) { camera.position.set(0.9, 1.3, 3.9); controls.target.set(...target); dirty = true; },
   };
 }
