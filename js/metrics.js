@@ -278,3 +278,19 @@ export function computeMetrics(frames, spike) {
   m.landingKnee = W(landing) && landingSeen ? kneeAngle(W(landing)) : NaN;
   return m;
 }
+
+// 影像空間推估騰空高度（公尺）：最低那隻腳離地多少。影像位移 × (世界軀幹長 / 影像軀幹長)
+export function liftSeries(frames, a, b) {
+  const foot = []; const scale = [];
+  for (let i = a; i <= b; i++) {
+    const f = frames[i];
+    if (!f.img || !f.world) { foot.push(NaN); scale.push(NaN); continue; }
+    foot.push(Math.max(f.img[L.lAn][1], f.img[L.rAn][1], f.img[L.lFt][1], f.img[L.rFt][1]));
+    const ti = dist(mid(f.img[L.lSh], f.img[L.rSh]), mid(f.img[L.lHip], f.img[L.rHip]));
+    const tw = dist(mid(f.world[L.lSh], f.world[L.rSh]), mid(f.world[L.lHip], f.world[L.rHip]));
+    scale.push(tw / ti);
+  }
+  const ff = fillGaps(foot); const sc = fillGaps(scale);
+  const ground = Math.max(...ff.filter(Number.isFinite));
+  return ff.map((y, k) => Math.round(Math.max(0, Math.min(1.4, (ground - y) * sc[k])) * 1000) / 1000);
+}

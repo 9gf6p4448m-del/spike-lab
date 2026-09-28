@@ -1,47 +1,37 @@
 import { analyzeVideo, loadModel } from './pose.js';
-import { selectSpiker, cleanFrames, detectSpikes, computeMetrics, METRIC_DEFS, kneeAngle, jointAngle, vecAngle, sub, mid, dist, L, fillGaps } from './metrics.js';
-import { corrected, boneLengths, alignRef, yawDelta, mapIndex, withCenters } from './retarget.js';
+import { selectSpiker, cleanFrames, detectSpikes, computeMetrics, liftSeries, METRIC_DEFS, kneeAngle, jointAngle, vecAngle, sub, mid, L } from './metrics.js';
+import { corrected, boneLengths, alignRef, yawDelta, mapIndex } from './retarget.js';
 import { createScene, groundOffset } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
 const S = createScene($('three'));
 
 // ---------- 參考資料 ----------
+// reference.json：
+//   standards：每項指標的文獻判定範圍與出處（判定用）
+//   reference：通過驗證的參考選手骨架（石川補入後才有；有它才顯示矯正骨架）
+//   demos：示範用骨架（不參與判定）
 let REF = null;
-let PN = '參考選手'; // 主要對照選手的短名
-const STORED = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 31, 32]; // reference.json 只存這 15 點
+let PN = null; // 參考選手短名（沒有參考骨架時為 null）
+const STORED = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 31, 32]; // 只存這 15 點
 function expand(pts) {
   const w = Array.from({ length: 33 }, () => [0, 0, 0]);
   STORED.forEach((j, k) => { w[j] = pts[k]; });
   return w;
 }
+const hasRef = () => Boolean(REF?.reference?.clips?.length);
 
 // ---------- 狀態 ----------
 const st = {
   mode: 'demo', // demo | user
   user: null,   // { frames, fps, spikes: [{...spike, metrics, lengths, lift}] }
   shot: 0,
-  i: 0,         // 目前格（使用者影片或參考片段的絕對格號）
+  i: 0,         // 目前格（使用者影片或示範片段的絕對格號）
   playing: false,
   speed: 0.5,
-  refClip: null,
+  demo: null,   // 目前示範片段
+  refClip: null, // 目前對照的參考片段（有參考骨架時）
 };
-
-// 影像空間推估騰空高度（公尺）：最低那隻腳離地多少
-function liftSeries(frames, a, b) {
-  const foot = []; const scale = [];
-  for (let i = a; i <= b; i++) {
-    const f = frames[i];
-    if (!f.img || !f.world) { foot.push(NaN); scale.push(NaN); continue; }
-    foot.push(Math.max(f.img[L.lAn][1], f.img[L.rAn][1], f.img[L.lFt][1], f.img[L.rFt][1]));
-    const ti = dist(mid(f.img[L.lSh], f.img[L.rSh]), mid(f.img[L.lHip], f.img[L.rHip]));
-    const tw = dist(mid(f.world[L.lSh], f.world[L.rSh]), mid(f.world[L.lHip], f.world[L.rHip]));
-    scale.push(tw / ti);
-  }
-  const ff = fillGaps(foot); const sc = fillGaps(scale);
-  const ground = Math.max(...ff.filter(Number.isFinite));
-  return ff.map((y, k) => Math.max(0, Math.min(1.4, (ground - y) * sc[k])));
-}
 
 // ---------- 分析使用者影片 ----------
 let abort = null;
@@ -49,6 +39,7 @@ $('file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = '';
+  setPlaying(false);
   const video = $('video');
   if (video.src) URL.revokeObjectURL(video.src);
   video.src = URL.createObjectURL(file);
@@ -70,8 +61,7 @@ $('file').addEventListener('change', async (e) => {
       signal: abort.signal,
       onProgress: (k, n) => {
         $('prog').style.width = `${(k / n) * 100}%`;
-        const el = (performance.now() - t0) / 1000;
-        const left = (el / k) * (n - k);
+        const left = ((performance.now() - t0) / 1000 / k) * (n - k);
         setStatus(`分析中 ${k} / ${n} 格　約剩 ${Math.ceil(left)} 秒`);
       },
     });
@@ -105,60 +95,69 @@ function setStatus(msg, err = false) {
   $('status').classList.toggle('err', err);
 }
 
-// ---------- 選球、畫面 ----------
-function primaryRef(arm) {
-  const clips = REF.clips.filter((c) => c.primary && c.pose);
-  return clips.find((c) => c.arm === arm) ?? clips[0];
-}
-
+// ---------- 選球 ----------
 function selectShot(k) {
   st.shot = k;
   if (st.mode === 'user') {
     const sp = st.user.spikes[k];
-    st.refClip = primaryRef(sp.arm);
-    const r = st.refClip.pose;
-    st.yaw = yawDelta(st.user.frames[sp.contact].world, expand(r.frames[r.events.contact]));
-    st.mirror = st.refClip.arm !== sp.arm;
-    if (st.mirror) st.yaw = yawDelta(st.user.frames[sp.contact].world, alignRef(expand(r.frames[r.events.contact]), true, 0));
+    if (hasRef()) {
+      const clips = REF.reference.clips;
+      st.refClip = clips.find((c) => c.arm === sp.arm) ?? clips[0];
+      const r = st.refClip.pose;
+      st.mirror = st.refClip.arm !== sp.arm;
+      st.yaw = yawDelta(st.user.frames[sp.contact].world, alignRef(expand(r.frames[r.events.contact]), st.mirror, 0));
+    }
     st.i = sp.contact;
     $('scrub').min = sp.start; $('scrub').max = sp.end;
     $('demoTag').hidden = true;
-    $('headline').textContent = `第 ${k + 1} 球 · 對照 ${st.refClip.player}`;
-    $('lede').textContent = `橘色是你，青色是把你每段骨頭的方向往 ${st.refClip.player} 同一時刻的動作靠攏後的你，半透明白色是 ${st.refClip.player} 本人。拖曳 3D 畫面可以轉視角。`;
+    $('headline').textContent = `第 ${k + 1} 球` + (hasRef() ? ` · 對照 ${REF.reference.player}` : '');
+    $('lede').textContent = hasRef()
+      ? `橘色是你，青色是把你每段骨頭的方向往 ${PN} 同一時刻的動作靠攏後的你，半透明白色是 ${PN} 本人。拖曳 3D 畫面可以轉視角。`
+      : '橘色是你的 3D 骨架，拖曳畫面可以轉視角。下方表格把你的數值跟運動生物力學研究量到的範圍比較。';
   } else {
-    const r = st.refClip.pose;
+    const r = st.demo.pose;
     st.i = r.events.contact;
     $('scrub').min = 0; $('scrub').max = r.frames.length - 1;
   }
+  renderLegend();
   renderChips();
   renderMetrics();
   renderAdvice();
   draw();
 }
 
+function renderLegend() {
+  const user = st.mode === 'user';
+  const items = [];
+  if (user) items.push('<span><i style="background:var(--you)"></i>你的動作</span>');
+  if (user && hasRef()) items.push('<span><i style="background:var(--fix)"></i>矯正後</span>');
+  if (hasRef() && user) items.push(`<span><i style="background:var(--ghost);opacity:.5"></i>${REF.reference.player}</span>`);
+  if (!user) items.push(`<span><i style="background:var(--ghost)"></i>範例：${st.demo.player}（示範用）</span>`);
+  $('legend').innerHTML = items.join('');
+  $('refToggles').hidden = !(user && hasRef());
+}
+
 function renderChips() {
   const box = $('chips'); box.innerHTML = '';
+  const lab = document.createElement('span'); lab.className = 'hint';
   if (st.mode === 'user') {
-    const lab = document.createElement('span'); lab.className = 'hint'; lab.textContent = '選球';
-    box.append(lab);
+    lab.textContent = '選球'; box.append(lab);
     st.user.spikes.forEach((sp, k) => {
       const b = document.createElement('button');
       b.className = 'chip' + (outCount(sp.metrics) ? ' bad' : '');
       b.setAttribute('aria-pressed', k === st.shot);
-      const t = st.user.frames[sp.contact].t;
-      b.innerHTML = `<span class="dot"></span>第 ${k + 1} 球 ${fmtT(t)}`;
+      b.innerHTML = `<span class="dot"></span>第 ${k + 1} 球 ${fmtT(st.user.frames[sp.contact].t)}`;
       b.onclick = () => selectShot(k);
       box.append(b);
     });
-  } else {
-    const lab = document.createElement('span'); lab.className = 'hint'; lab.textContent = '範例';
-    box.append(lab);
-    REF.clips.filter((c) => c.pose).forEach((c) => {
+  } else if (REF.demos.length > 1) {
+    lab.textContent = '範例'; box.append(lab);
+    REF.demos.forEach((c) => {
       const b = document.createElement('button');
       b.className = 'chip';
-      b.setAttribute('aria-pressed', c === st.refClip);
-      b.textContent = `${c.player} · ${c.label ?? c.id}`;
-      b.onclick = () => { st.refClip = c; selectShot(0); };
+      b.setAttribute('aria-pressed', c === st.demo);
+      b.textContent = c.player;
+      b.onclick = () => { st.demo = c; selectShot(0); };
       box.append(b);
     });
   }
@@ -167,9 +166,10 @@ function renderChips() {
 const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const fmt = (v, unit) => (Number.isFinite(v) ? `${Math.round(v)}${unit}` : '—');
 
-// 判定用範圍＝職業 min–max 兩端各放寬量測誤差 tol
+// ---------- 判定 ----------
+// 判定範圍＝文獻範圍兩端各放寬量測誤差 tol；沒有文獻範圍的指標只顯示不判定
 function judgeRange(key) {
-  const r = REF.summary.range[key]; const d = METRIC_DEFS.find((x) => x.key === key);
+  const r = REF.standards[key]?.range; const d = METRIC_DEFS.find((x) => x.key === key);
   return r ? [r[0] - d.tol, r[1] + d.tol] : null;
 }
 function status(key, v) {
@@ -179,47 +179,44 @@ function status(key, v) {
   if (v > r[1]) return 1;
   return 0;
 }
-const rangeText = (d) => { const r = REF.summary.range[d.key]; if (!r) return '—'; return r[0] === r[1] ? `${Math.round(r[0])}${d.unit} ±${d.tol}` : `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}（±${d.tol}）`; };
+const litText = (d) => { const r = REF.standards[d.key]?.range; return r ? `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}` : '<span class="muted">無文獻</span>'; };
 const outCount = (m) => METRIC_DEFS.filter((d) => status(d.key, m[d.key]) !== 0).length;
 
 function renderMetrics() {
-  const t = $('metrics');
-  const ish = REF.summary.ishikawa;
   const user = st.mode === 'user' ? st.user.spikes[st.shot].metrics : null;
-  const n = REF.summary.counts;
-  $('shotTitle').textContent = user ? `第 ${st.shot + 1} 球的數據` : `${PN} 的數據（參考資料：${n.players} 位選手、${n.clips} 球）`;
-  let html = `<tr><th>指標</th>${user ? '<th>你</th>' : ''}<th>${PN}</th><th>判定範圍</th></tr>`;
+  const refM = hasRef() ? REF.reference.metrics : null;
+  $('shotTitle').textContent = user ? `第 ${st.shot + 1} 球的數據` : '判定標準（運動生物力學研究）';
+  let html = `<tr><th>指標</th>${user ? '<th>你</th>' : ''}<th>研究範圍</th>${refM ? `<th>${PN}</th>` : ''}</tr>`;
   for (const d of METRIC_DEFS) {
-    const r = REF.summary.range[d.key];
     const s = user ? status(d.key, user[d.key]) : 0;
-    html += `<tr><td>${d.label}<small>${d.note}</small></td>`
-      + (user ? `<td class="you ${s ? 'out' : ''}">${Number.isFinite(user[d.key]) ? fmt(user[d.key], d.unit) : '<span class="muted">沒拍到</span>'}${s ? ` <span class="pill">${s < 0 ? '偏低' : '偏高'}</span>` : ''}</td>` : '')
-      + `<td>${fmt(ish[d.key], d.unit)}</td><td>${rangeText(d)}</td></tr>`;
+    const youCell = !user ? ''
+      : `<td class="you ${s ? 'out' : ''}">${Number.isFinite(user[d.key]) ? fmt(user[d.key], d.unit) : '<span class="muted">沒拍到</span>'}${s ? ` <span class="pill">${s < 0 ? '偏低' : '偏高'}</span>` : ''}</td>`;
+    html += `<tr><td>${d.label}<small>${d.note}</small></td>${youCell}<td>${litText(d)}</td>${refM ? `<td>${fmt(refM[d.key], d.unit)}</td>` : ''}</tr>`;
   }
-  t.innerHTML = html;
+  $('metrics').innerHTML = html;
 }
 
 // ---------- 建議 ----------
 const ADVICE = {
   takeoffKnee: {
     '1': '起跳前蹲得不夠深。最後兩步踩下時，髖和膝一起往下沉，雙手同時往後擺到底，把力量存在腿上再往上爆發。',
-    '-1': '起跳前蹲得比職業選手還深。蹲太深會讓起跳變慢，試著蹲到大約大腿和地面呈 45° 就往上跳。',
+    '-1': '起跳前蹲得比研究範圍還深。蹲太深會讓起跳變慢，試著蹲淺一點、更快地往上跳。',
   },
   backswingElbow: {
     '-1': '拉弓時手肘太低。起跳後擊球手要往後上方拉，手肘至少和肩同高，像拉弓一樣，揮臂才有足夠的距離加速。',
-    '1': '拉弓時手肘抬得比職業選手更高，只要揮臂順暢就不一定是問題，留意肩膀有沒有卡住。',
+    '1': '拉弓時手肘抬得比研究範圍更高，只要揮臂順暢就不一定是問題，留意肩膀有沒有卡住。',
   },
   separation: {
     '-1': '擊球前身體轉開得不夠，肩膀和髖幾乎一起轉。起跳後先把擊球側的肩膀往後拉開，再由髖帶動肩膀轉回來擊球（這項數值受拍攝角度影響大，看趨勢就好）。',
-    '1': '肩髖扭轉比職業範圍大，可能是拍攝角度造成的深度誤差，先看其他指標。',
+    '1': '肩髖扭轉比研究範圍大，可能是拍攝角度造成的深度誤差，先看其他指標。',
   },
   contactElbow: {
     '-1': '擊球時手臂沒有伸直，擊球點被壓低了。等球落到手臂伸直能碰到的最高點再打，手肘在擊球瞬間要打開。',
-    '1': '擊球時手臂比職業範圍還直，這通常不是問題。',
+    '1': '擊球時手臂比研究範圍還直，這通常不是問題。',
   },
   contactReach: {
     '-1': '擊球點偏低。起跳時機可能太晚或太早，試著在最高點、手臂伸直時在頭部前上方觸球。',
-    '1': '擊球點比職業範圍還高，很好。',
+    '1': '擊球點比研究範圍還高，很好。',
   },
   contactTrunk: {
     '1': '擊球時身體傾斜太多。軀幹保持比較直立，讓力量從腹部往上傳到手臂，而不是整個人往前倒。',
@@ -227,14 +224,14 @@ const ADVICE = {
   },
   landingKnee: {
     '1': '落地時膝蓋太直，衝擊直接傳到膝蓋和腰。落地時雙腳著地、膝蓋和髖一起彎曲緩衝。',
-    '-1': '落地時膝蓋彎得比職業範圍還深，緩衝是夠的，留意能不能馬上站穩準備下一球。',
+    '-1': '落地時膝蓋彎得比研究範圍還深，緩衝是夠的，留意能不能馬上站穩準備下一球。',
   },
 };
 
 function renderAdvice() {
-  const ul = $('advice'); ul.innerHTML = '';
+  const ul = $('advice');
   if (st.mode !== 'user') {
-    ul.innerHTML = '<li class="good"><b>先上傳一支你的扣球影片</b><p>分析完成後，這裡會列出你和職業範圍差最多的地方，以及具體的練習方向。</p></li>';
+    ul.innerHTML = '<li class="good"><b>先上傳一支你的扣球影片</b><p>分析完成後，這裡會列出你和研究範圍差最多的地方，以及具體的練習方向。</p></li>';
     return;
   }
   const m = st.user.spikes[st.shot].metrics;
@@ -242,13 +239,15 @@ function renderAdvice() {
   for (const d of METRIC_DEFS) {
     const s = status(d.key, m[d.key]);
     if (!s) continue;
-    const r = REF.summary.range[d.key];
-    const gap = s < 0 ? r[0] - m[d.key] : m[d.key] - r[1];
-    items.push({ gap: gap / Math.max(1, r[1] - r[0]), html: `<li><b>${d.label}：你 ${fmt(m[d.key], d.unit)}，判定範圍 ${rangeText(d)}，${PN} ${fmt(REF.summary.ishikawa[d.key], d.unit)}</b><p>${ADVICE[d.key][String(s)]}</p></li>` });
+    const r = REF.standards[d.key].range;
+    const gap = (s < 0 ? r[0] - m[d.key] : m[d.key] - r[1]) / Math.max(1, r[1] - r[0]);
+    items.push({ gap, html: `<li><b>${d.label}：你 ${fmt(m[d.key], d.unit)}，研究範圍 ${litText(d)}</b><p>${ADVICE[d.key][String(s)]}</p></li>` });
   }
   items.sort((a, b) => b.gap - a.gap);
-  if (!items.length) ul.innerHTML = `<li class="good"><b>這一球每項指標都落在判定範圍內</b><p>接下來可以比對 3D 畫面，看動作的時間順序（蹲低、拉弓、擊球）跟 ${PN} 有沒有差別。</p></li>`;
-  else ul.innerHTML = items.map((x) => x.html).join('');
+  const unseen = METRIC_DEFS.filter((d) => !Number.isFinite(m[d.key])).map((d) => d.label);
+  const tail = unseen.length ? `<li class="good"><b>這支影片沒拍到：${unseen.join('、')}</b><p>下次從助跑前拍到落地站穩，這幾項就能一起分析。</p></li>` : '';
+  ul.innerHTML = (items.length ? items.map((x) => x.html).join('')
+    : '<li class="good"><b>這一球有研究範圍的指標都在範圍內</b><p>可以在 3D 畫面裡慢速播放，檢查蹲低、拉弓、擊球的時間順序順不順。</p></li>') + tail;
 }
 
 // ---------- 逐格繪製 ----------
@@ -278,35 +277,37 @@ function draw() {
   if (st.mode === 'user') {
     const sp = st.user.spikes[st.shot];
     const f = st.user.frames[st.i];
-    const r = st.refClip.pose;
-    const ev = { start: sp.start, crouch: sp.crouch, contact: sp.contact, landing: sp.landing, end: sp.end };
-    const ri = mapIndex(st.i, ev, r.events);
-    const refW = alignRef(expand(r.frames[ri]), st.mirror, st.yaw);
-    const lift = sp.lift[st.i - sp.start] ?? 0;
     const w = f.world;
+    const lift = sp.lift[st.i - sp.start] ?? 0;
+    const ev = { start: sp.start, crouch: sp.crouch, contact: sp.contact, landing: sp.landing, end: sp.end };
     if (Math.abs(st.i - sp.contact) <= 1) [L.rWr, L.lWr, L.rEl, L.lEl].forEach((j) => hi.add(j));
     let fixW = null;
-    if (w) {
-      fixW = corrected(w, refW, sp.lengths, 0.75);
+    if (hasRef()) {
+      const r = st.refClip.pose;
+      const ri = mapIndex(st.i, ev, r.events);
+      const refW = alignRef(expand(r.frames[ri]), st.mirror, st.yaw);
+      if (w) fixW = corrected(w, refW, sp.lengths, 0.75);
       S.you.set(w, [-0.55, groundOffset(w) + lift], hi);
-      S.fix.set($('showFix').checked ? fixW : null, [0.55, groundOffset(fixW) + lift], hi);
-    } else { S.you.set(null); S.fix.set(null); }
-    S.ghost.mat.opacity = 0.28;
-    S.ghost.set($('showGhost').checked ? refW : null, [0.55, groundOffset(refW) + (r.lift[ri] ?? 0)]);
-    const a = angles(w, sp.arm); const b = angles(fixW, sp.arm);
-    hud(a, b);
+      S.fix.set($('showFix').checked && fixW ? fixW : null, [0.55, groundOffset(fixW) + lift], hi);
+      S.ghost.mat.opacity = 0.28;
+      S.ghost.set($('showGhost').checked ? refW : null, [0.55, groundOffset(refW) + (r.lift[ri] ?? 0)]);
+    } else {
+      S.you.set(w, [0, groundOffset(w) + lift], hi);
+      S.fix.set(null); S.ghost.set(null);
+    }
+    hud(angles(w, sp.arm), fixW ? angles(fixW, sp.arm) : null);
     $('phase').textContent = phaseName(st.i, ev);
     $('tlabel').textContent = `${f.t.toFixed(2)}s · F${st.i}`;
     drawOverlay(f);
   } else {
-    const c = st.refClip; const r = c.pose;
+    const c = st.demo; const r = c.pose;
     const w = expand(r.frames[st.i]);
     S.you.set(null); S.fix.set(null);
     S.ghost.mat.opacity = 0.9;
     if (Math.abs(st.i - r.events.contact) <= 1) [L.rWr, L.lWr].forEach((j) => hi.add(j));
     S.ghost.set(w, [0, groundOffset(w) + (r.lift[st.i] ?? 0)], hi);
     hud(null, null, angles(w, c.arm));
-    $('phase').textContent = phaseName(st.i, r.events);
+    $('phase').textContent = st.i === r.events.contact ? '擊球' : (st.i < r.events.contact ? '擊球前' : '擊球後');
     $('tlabel').textContent = `${c.player} · F${st.i}`;
   }
   $('scrub').value = st.i;
@@ -317,11 +318,11 @@ function hud(a, b, g) {
   const rows = [['膝角', 'knee'], ['擊球臂肘角', 'elbow'], ['上臂抬高', 'raise'], ['軀幹傾角', 'trunk']];
   const t = $('hudTable');
   if (g) {
-    t.innerHTML = `<tr><th></th><th>${PN}</th></tr>` + rows.map(([n, k]) => `<tr><td>${n}</td><td>${fmt(g[k], '°')}</td></tr>`).join('');
+    t.innerHTML = '<tr><th></th><th>範例</th></tr>' + rows.map(([n, k]) => `<tr><td>${n}</td><td>${fmt(g[k], '°')}</td></tr>`).join('');
     return;
   }
-  t.innerHTML = '<tr><th></th><th class="y">你</th><th class="f">矯正</th></tr>'
-    + rows.map(([n, k]) => `<tr><td>${n}</td><td class="y">${fmt(a?.[k], '°')}</td><td class="f">${fmt(b?.[k], '°')}</td></tr>`).join('');
+  t.innerHTML = `<tr><th></th><th class="y">你</th>${b ? '<th class="f">矯正</th>' : ''}</tr>`
+    + rows.map(([n, k]) => `<tr><td>${n}</td><td class="y">${fmt(a?.[k], '°')}</td>${b ? `<td class="f">${fmt(b[k], '°')}</td>` : ''}</tr>`).join('');
 }
 
 // 原始影片上疊 2D 骨架（播放中節流，避免手機一直 seek）
@@ -340,7 +341,7 @@ function drawOverlay(f) {
   ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = Math.max(2, c.width / 250); ctx.lineCap = 'round';
   const segs = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 31], [28, 32]];
   ctx.beginPath();
-  for (const [a, b] of segs) { const p = P(a); const q = P(b); ctx.moveTo(...p); ctx.lineTo(...q); }
+  for (const [a, b] of segs) { ctx.moveTo(...P(a)); ctx.lineTo(...P(b)); }
   ctx.stroke();
   ctx.fillStyle = '#ffd1ad';
   for (const j of [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { const p = P(j); ctx.beginPath(); ctx.arc(p[0], p[1], ctx.lineWidth * 1.3, 0, 7); ctx.fill(); }
@@ -349,7 +350,7 @@ function drawOverlay(f) {
 // ---------- 播放控制 ----------
 function bounds() {
   if (st.mode === 'user') { const sp = st.user.spikes[st.shot]; return [sp.start, sp.end, sp.contact, st.user.fps]; }
-  const r = st.refClip.pose; return [0, r.frames.length - 1, r.events.contact, r.fps];
+  const r = st.demo.pose; return [0, r.frames.length - 1, r.events.contact, r.fps];
 }
 let acc = 0; let last = 0;
 function tick(ts) {
@@ -380,24 +381,31 @@ $('scrub').oninput = (e) => { setPlaying(false); st.i = Number(e.target.value); 
 $('showGhost').onchange = draw;
 $('showFix').onchange = draw;
 
+// ---------- 文字與出處 ----------
 function applyNames() {
-  const p = REF.summary.primary;
-  PN = p.isIshikawa ? '石川' : p.player.split(' ').pop();
-  const n = REF.summary.counts;
-  $('metaFile').textContent = `範例：${p.player}`;
-  $('headline').textContent = `${p.player} 的扣球，逐格拆解`;
-  $('lede').textContent = `選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往 ${PN} 的動作調整後的你，半透明白色是 ${PN} 本人。`;
-  $('ghostLegend').textContent = p.player;
-  $('ghostToggle').textContent = ` 顯示 ${PN}`;
-  $('refNotice').hidden = p.isIshikawa && n.clips >= 3;
-  $('refNotice').innerHTML = p.isIshikawa ? `目前參考資料 ${n.players} 位選手、${n.clips} 球，持續補充中。` : `<b>石川祐希的參考資料補充中。</b>目前先用 ${p.player}（${n.clips} 球）當對照；參考球數少，判定範圍是用「參考值 ± 量測誤差」估的，建議當方向參考。`;
+  PN = hasRef() ? (/ishikawa|石川/i.test(REF.reference.player) ? '石川' : REF.reference.player.split(' ').pop()) : null;
+  const d = st.demo;
+  $('metaFile').textContent = d ? `範例：${d.player}` : '範例';
+  $('headline').textContent = hasRef() ? `跟 ${REF.reference.player} 比一比` : '拍一球，看懂你的扣球';
+  $('ghostToggle').textContent = PN ? ` 顯示 ${PN}` : '';
+  $('refNotice').hidden = false;
+  $('refNotice').innerHTML = hasRef()
+    ? `對照骨架：${REF.reference.player}（${REF.reference.clips.length} 球）。判定標準用運動生物力學研究的數值。`
+    : '<b>石川祐希的對照骨架補充中。</b>目前判定標準用運動生物力學研究量到的數值（出處在頁面最下方）；補上石川的影片之後，會多出「往石川動作調整後的你」這副青色骨架。';
 }
 
 function renderSources() {
-  const byP = {};
-  for (const c of REF.clips) (byP[`${c.player}（${c.country}）`] ??= []).push(c);
-  $('sources').innerHTML = Object.entries(byP).map(([p, cs]) => `<div>${p}：${cs.map((c, k) => `<a href="${c.source_url}" target="_blank" rel="noopener">第 ${k + 1} 球</a>`).join('、')}</div>`).join('')
-    + (REF.missing?.length ? `<div class="fine">找不到合格片段：${REF.missing.join('、')}</div>` : '');
+  const lit = METRIC_DEFS.map((d) => {
+    const s = REF.standards[d.key];
+    if (!s?.range) return `<div><b>${d.label}</b>：沒有找到對應的研究數值，只顯示、不判定。</div>`;
+    const cites = (s.sources ?? []).map((c) => (c.url ? `<a href="${c.url}" target="_blank" rel="noopener">${c.cite}</a>` : c.cite)).join('；');
+    return `<div><b>${d.label}</b>：${Math.round(s.range[0])}–${Math.round(s.range[1])}${d.unit}。${cites}${s.conversion ? `<br><span class="fine">${s.conversion}</span>` : ''}</div>`;
+  }).join('');
+  const demos = REF.demos.map((c) => `<a href="${c.source_url}" target="_blank" rel="noopener">${c.player}（${c.country}）</a>`).join('、');
+  const refs = hasRef() ? REF.reference.clips.map((c, k) => `<a href="${c.source_url}" target="_blank" rel="noopener">第 ${k + 1} 球</a>`).join('、') : '';
+  $('sources').innerHTML = lit
+    + (refs ? `<div><b>對照骨架</b>：${REF.reference.player}，${refs}</div>` : '')
+    + (demos ? `<div><b>首頁範例骨架</b>：${demos}（慢動作重播片段，只拍到空中階段，僅供示範，不參與判定）</div>` : '');
 }
 
 // ---------- 啟動 ----------
@@ -408,11 +416,10 @@ function renderSources() {
     setStatus('參考資料載入失敗，請重新整理頁面。', true);
     return;
   }
-  st.refClip = REF.clips.find((c) => c.primary && c.pose) ?? REF.clips.find((c) => c.pose);
+  st.demo = REF.demos[0] ?? null;
   applyNames();
   renderSources();
-  selectShot(0);
-  setPlaying(true);
+  if (st.demo) { selectShot(0); setPlaying(true); } else { renderMetrics(); renderAdvice(); }
 })();
 
 // 給自動化測試用的唯讀窗口
