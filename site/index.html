@@ -54,6 +54,7 @@ h2 { font-size: 13px; font-family: var(--mono); font-weight: 600; letter-spacing
 @media (min-width: 900px) { .stage { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); } }
 
 .viewer { position: relative; background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.canvas-box { position: relative; }
 .viewer canvas { display: block; width: 100%; aspect-ratio: 1 / 1; touch-action: none; }
 @media (min-width: 600px) { .viewer canvas { aspect-ratio: 16 / 11; } }
 .hud { position: absolute; inset: 10px 10px auto 10px; display: flex; justify-content: space-between; gap: 8px; pointer-events: none; }
@@ -129,13 +130,26 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
 
   <section class="stage">
     <div class="viewer">
-      <canvas id="three" aria-label="3D 骨架，可以拖曳旋轉視角"></canvas>
-      <div class="hud">
-        <table id="hudTable" aria-label="目前這一格的角度"></table>
-        <div class="phase"><b id="phase">—</b><small id="tlabel"></small></div>
+      <div class="canvas-box">
+        <canvas id="three" aria-label="3D 骨架，可以拖曳旋轉視角"></canvas>
+        <div class="hud">
+          <table id="hudTable" aria-label="目前這一格的角度"></table>
+          <div class="phase"><b id="phase">—</b><small id="tlabel"></small></div>
+        </div>
+        <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i>石川祐希</span></div>
+        <div class="demo-tag" id="demoTag">範例資料</div>
       </div>
-      <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i>石川祐希</span></div>
-      <div class="demo-tag" id="demoTag">範例資料</div>
+      <div class="controls">
+        <div class="row">
+          <button class="btn" id="play" aria-label="播放">▶ 播放</button>
+          <button class="btn" id="toContact">跳到擊球瞬間</button>
+          <button class="btn" id="speed">速度 0.5×</button>
+          <label class="tog"><input type="checkbox" id="showGhost" checked> 顯示石川</label>
+          <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label>
+        </div>
+        <input type="range" id="scrub" min="0" max="0" value="0" aria-label="時間軸">
+        <div class="chips" id="chips" aria-label="選擇第幾球"></div>
+      </div>
     </div>
 
     <aside class="side">
@@ -150,17 +164,6 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
     </aside>
   </section>
 
-  <div class="card controls" style="border-top:1px solid var(--line)">
-    <div class="row">
-      <button class="btn" id="play" aria-label="播放">▶ 播放</button>
-      <button class="btn" id="toContact">跳到擊球瞬間</button>
-      <button class="btn" id="speed">速度 0.5×</button>
-      <label class="tog"><input type="checkbox" id="showGhost" checked> 顯示石川</label>
-      <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label>
-    </div>
-    <input type="range" id="scrub" min="0" max="0" value="0" aria-label="時間軸">
-    <div class="chips" id="chips" aria-label="選擇第幾球"></div>
-  </div>
 
   <section class="card">
     <h2>怎麼進步</h2>
