@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runPose } from './run-pose.mjs';
-import { cleanFrames, detectSpikes, computeMetrics, METRIC_DEFS, imageSeries } from '../site/js/metrics.js';
+import { selectSpiker, cleanFrames, detectSpikes, computeMetrics, METRIC_DEFS, imageSeries } from '../site/js/metrics.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const CLIPS = path.join(ROOT, 'ref-clips');
@@ -18,7 +18,7 @@ const isIshikawa = (e) => /ishikawa|石川/i.test(e.player);
 const todo = manifest.filter((e) => !fs.existsSync(path.join(cacheDir, path.basename(e.file) + '.json')));
 if (todo.length) {
   const abs = todo.map((e) => path.resolve(CLIPS, e.file));
-  const res = await runPose(abs, (f) => Math.round(manifest.find((e) => path.resolve(CLIPS, e.file) === f).fps) || 30);
+  const res = await runPose(abs, (f) => Math.round(manifest.find((e) => path.resolve(CLIPS, e.file) === f).fps) || 30, (f) => manifest.find((e) => path.resolve(CLIPS, e.file) === f).crop ?? null);
   for (const e of todo) fs.writeFileSync(path.join(cacheDir, path.basename(e.file) + '.json'), JSON.stringify(res[path.resolve(CLIPS, e.file)]));
 }
 
@@ -41,7 +41,7 @@ function liftSeries(frames, a, b) {
 const clips = []; const report = [];
 for (const e of manifest) {
   const raw = JSON.parse(fs.readFileSync(path.join(cacheDir, path.basename(e.file) + '.json'), 'utf8'));
-  const frames = cleanFrames(raw.frames);
+  const frames = cleanFrames(selectSpiker(raw.frames));
   const seen = frames.filter((f) => f.world).length;
   const spikes = detectSpikes(frames);
   report.push(`${path.basename(e.file)}｜${e.player}｜${frames.length} 格｜抓到人 ${seen}（${Math.round((seen / frames.length) * 100)}%）｜扣球 ${spikes.length}`);

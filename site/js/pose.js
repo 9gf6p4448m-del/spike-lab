@@ -16,7 +16,7 @@ export async function loadModel(onStatus = () => {}) {
       landmarker = await PoseLandmarker.createFromOptions(fileset, {
         baseOptions: { modelAssetBuffer: model, delegate },
         runningMode: 'VIDEO',
-        numPoses: 1,
+        numPoses: 4,
         minPoseDetectionConfidence: 0.4,
         minPosePresenceConfidence: 0.4,
         minTrackingConfidence: 0.4,
@@ -50,9 +50,12 @@ export async function analyzeVideo(video, { fps = 30, onProgress = () => {}, sig
     await seek(video, t);
     lastTs = Math.max(lastTs + 1, Math.round(performance.now()));
     const r = lm.detectForVideo(video, lastTs);
-    const img = r.landmarks?.[0]?.map((p) => [p.x * aspect, p.y, p.z * aspect, p.visibility ?? 1]) ?? null;
-    const world = r.worldLandmarks?.[0]?.map((p) => [p.x, p.y, p.z]) ?? null;
-    frames.push({ t, img, world });
+    // 畫面裡可能有好幾個人：全部留下，之後由 selectSpiker 追蹤並挑出扣球者
+    const people = (r.landmarks ?? []).map((lm, k) => ({
+      img: lm.map((p) => [p.x * aspect, p.y, p.z * aspect, p.visibility ?? 1]),
+      world: r.worldLandmarks[k].map((p) => [p.x, p.y, p.z]),
+    }));
+    frames.push({ t, people });
     onProgress(i + 1, n);
   }
   return { frames, fps, aspect, duration };
