@@ -1,0 +1,21 @@
+<title>Spike Lab CSP Test</title>
+<style>body{background:#111;color:#eee;font:16px monospace;padding:16px}</style>
+<pre id="log">starting…</pre>
+<script type="module">
+const log = (m) => { document.getElementById('log').textContent += '\n' + m; };
+try {
+  const { FilesetResolver, PoseLandmarker } = await import('./vendor/vision_bundle.mjs');
+  log('bundle ok');
+  const fs = await FilesetResolver.forVisionTasks('./vendor/wasm');
+  log('fileset ok ' + JSON.stringify(fs).slice(0,160));
+  let pl;
+  for (const d of ['GPU','CPU']) {
+    try { pl = await PoseLandmarker.createFromOptions(fs, { baseOptions:{ modelAssetBuffer: new Uint8Array(await (await fetch('./vendor/pose_full.model.wasm')).arrayBuffer()), delegate:d }, runningMode:'IMAGE', numPoses:1 }); log('model ok delegate=' + d); break; }
+    catch(e){ log('delegate ' + d + ' failed: ' + e); }
+  }
+  const c = document.createElement('canvas'); c.width=256; c.height=256; c.getContext('2d').fillRect(0,0,256,256);
+  const r = pl.detect(c);
+  log('detect ok poses=' + r.landmarks.length);
+  log('RESULT: PASS');
+} catch (e) { log('RESULT: FAIL ' + e + '\n' + (e.stack||'')); }
+</script>
