@@ -229,7 +229,8 @@ const horiz = (v) => [v[0], 0, v[2]];
 export const METRIC_DEFS = [
   { key: 'takeoffKnee', label: '起跳前膝角', unit: '°', tol: 12, note: '起跳前蹲到最低時的膝蓋角度（180°＝打直）。越小代表蹲得越深、儲力越多。' },
   { key: 'backswingElbow', label: '拉弓手肘高度', unit: '°', tol: 12, note: '擊球臂拉弓時上臂和軀幹的夾角。90° 代表手肘跟肩同高，越大手肘越高。' },
-  { key: 'separation', label: '肩髖扭轉', unit: '°', tol: 15, note: '擊球前肩線和髖線在水平面上的最大夾角。代表身體有沒有轉開來蓄力。單支影片的深度估計誤差大，看趨勢就好。' },
+  // separation 不判定：文獻值為轉引且族群差異大，手機影片深度誤差也大；職業選手實測 21–27° 會被誤判偏低
+  { key: 'separation', label: '肩髖扭轉', unit: '°', tol: 15, judge: false, note: '擊球前肩線和髖線在水平面上的最大夾角。代表身體有沒有轉開來蓄力。單支影片的深度估計誤差大，看趨勢就好。' },
   { key: 'contactElbow', label: '擊球時手肘角', unit: '°', tol: 12, note: '擊球那一格擊球臂的手肘角度。越接近 180° 手臂越直、擊球點越高。' },
   { key: 'contactReach', label: '擊球點高度', unit: '%', tol: 6, note: '擊球時手腕高出頭頂多少，以身高的百分比表示。' },
   { key: 'contactTrunk', label: '擊球時軀幹傾角', unit: '°', tol: 12, note: '擊球時軀幹偏離垂直多少度。' },

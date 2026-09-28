@@ -170,7 +170,7 @@ const fmt = (v, unit) => (Number.isFinite(v) ? `${Math.round(v)}${unit}` : '—'
 // 判定範圍＝文獻範圍兩端各放寬量測誤差 tol；沒有文獻範圍的指標只顯示不判定
 function judgeRange(key) {
   const r = REF.standards[key]?.range; const d = METRIC_DEFS.find((x) => x.key === key);
-  return r ? [r[0] - d.tol, r[1] + d.tol] : null;
+  return r && d.judge !== false ? [r[0] - d.tol, r[1] + d.tol] : null;
 }
 function status(key, v) {
   const r = judgeRange(key);
@@ -179,7 +179,7 @@ function status(key, v) {
   if (v > r[1]) return 1;
   return 0;
 }
-const litText = (d) => { const r = REF.standards[d.key]?.range; return r ? `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}` : '<span class="muted">無文獻</span>'; };
+const litText = (d) => { const r = REF.standards[d.key]?.range; if (!r) return '<span class="muted">無文獻</span>'; return `${Math.round(r[0])}–${Math.round(r[1])}${d.unit}` + (d.judge === false ? '<br><span class="muted">僅參考</span>' : ''); };
 const outCount = (m) => METRIC_DEFS.filter((d) => status(d.key, m[d.key]) !== 0).length;
 
 function renderMetrics() {
@@ -399,7 +399,7 @@ function renderSources() {
     const s = REF.standards[d.key];
     if (!s?.range) return `<div><b>${d.label}</b>：沒有找到對應的研究數值，只顯示、不判定。</div>`;
     const cites = (s.sources ?? []).map((c) => (c.url ? `<a href="${c.url}" target="_blank" rel="noopener">${c.cite}</a>` : c.cite)).join('；');
-    return `<div><b>${d.label}</b>：${Math.round(s.range[0])}–${Math.round(s.range[1])}${d.unit}。${cites}${s.conversion ? `<br><span class="fine">${s.conversion}</span>` : ''}</div>`;
+    return `<div><b>${d.label}</b>：${Math.round(s.range[0])}–${Math.round(s.range[1])}${d.unit}${d.judge === false ? '（只顯示、不判定：研究數值是轉引的、族群差異大，手機影片的深度誤差也大）' : ''}。${cites}${s.conversion ? `<br><span class="fine">${s.conversion}</span>` : ''}</div>`;
   }).join('');
   const demos = REF.demos.map((c) => `<a href="${c.source_url}" target="_blank" rel="noopener">${c.player}（${c.country}）</a>`).join('、');
   const refs = hasRef() ? REF.reference.clips.map((c, k) => `<a href="${c.source_url}" target="_blank" rel="noopener">第 ${k + 1} 球</a>`).join('、') : '';
