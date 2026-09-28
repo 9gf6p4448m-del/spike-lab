@@ -89,8 +89,8 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
 .metrics { width: 100%; border-collapse: collapse; font-size: 13px; }
 .metrics th { font: 11px var(--mono); color: var(--muted); font-weight: 400; text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .metrics th:first-child { text-align: left; }
-.metrics td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; vertical-align: top; }
-.metrics td:first-child { text-align: left; font-family: var(--sans); }
+.metrics td { white-space: nowrap; padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: right; font: 13px var(--mono); font-variant-numeric: tabular-nums; vertical-align: top; }
+.metrics td:first-child { text-align: left; font-family: var(--sans); white-space: normal; }
 .metrics td:first-child small { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 2px; }
 .metrics .you { color: var(--you); font-weight: 600; }
 .metrics .out { color: var(--bad); }
@@ -117,7 +117,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
   <header>
     <div class="meta"><span>Spike Lab</span><span id="metaFile">範例</span><span><b>33 關節點</b> · 3D 重建</span><span>影片只在你的手機上分析</span></div>
     <h1>扣球動作實驗室<span id="headline">職業主攻手的扣球，逐格拆解</span></h1>
-    <p class="lede" id="lede">選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架。橘色是你，青色是把你的關節角度往職業選手的動作調整後的你，半透明白色是職業選手本人。</p>
+    <p class="lede" id="lede">選一支你的扣球影片，網頁會逐格抓出身上 33 個關節點，做成 3D 骨架，量出起跳、拉弓、擊球、落地的關鍵角度，再跟運動生物力學研究的數值比較。</p>
     <p class="notice" id="refNotice" hidden></p>
   </header>
 
@@ -140,7 +140,7 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
           <table id="hudTable" aria-label="目前這一格的角度"></table>
           <div class="phase"><b id="phase">—</b><small id="tlabel"></small></div>
         </div>
-        <div class="legend"><span><i style="background:var(--you)"></i>你的動作</span><span><i style="background:var(--fix)"></i>矯正後</span><span><i style="background:var(--ghost);opacity:.5"></i><span id="ghostLegend">參考選手</span></span></div>
+        <div class="legend" id="legend"></div>
         <div class="demo-tag" id="demoTag">範例資料</div>
       </div>
       <div class="controls">
@@ -148,8 +148,8 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
           <button class="btn" id="play" aria-label="播放">▶ 播放</button>
           <button class="btn" id="toContact">跳到擊球瞬間</button>
           <button class="btn" id="speed">速度 0.5×</button>
-          <label class="tog"><input type="checkbox" id="showGhost" checked><span id="ghostToggle"> 顯示參考選手</span></label>
-          <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label>
+          <span id="refToggles" hidden><label class="tog"><input type="checkbox" id="showGhost" checked><span id="ghostToggle"></span></label>
+          <label class="tog"><input type="checkbox" id="showFix" checked> 顯示矯正</label></span>
         </div>
         <input type="range" id="scrub" min="0" max="0" value="0" aria-label="時間軸">
         <div class="chips" id="chips" aria-label="選擇第幾球"></div>
@@ -175,9 +175,9 @@ label.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 13px
   </section>
 
   <section class="card">
-    <h2>參考資料來源</h2>
+    <h2>判定標準與出處</h2>
     <div class="sources" id="sources"></div>
-    <p class="fine">判定範圍＝下列參考選手每一球數值的最小到最大值，兩端再各放寬量測誤差（角度 ±12°、肩髖扭轉 ±15°、擊球點高度 ±6%），超出才標紅。參考數值和你的數值都用同一個模型（MediaPipe Pose Landmarker Full）與同一套公式算出。單支手機影片推估的 3D 深度（前後方向）誤差較大，「肩髖扭轉」請當趨勢參考。矯正骨架是把你每段骨頭的方向往參考選手同一時刻的姿勢靠攏 75%，骨頭長度維持你自己的，並不是生物力學模擬。</p>
+    <p class="fine">判定方式：研究範圍兩端再各放寬量測誤差（角度 ±12°、肩髖扭轉 ±15°、擊球點高度 ±6%），超出才標紅。你的數值用 MediaPipe Pose Landmarker（Full）從影片推估；單支手機影片推估的 3D 深度（前後方向）誤差較大，「肩髖扭轉」請當趨勢參考。研究多半用實驗室動作捕捉量測成年男子選手，跟手機影片量法不同，數值當方向參考。</p>
   </section>
 </div>
 <script type="module" src="./js/app.js"></script>
